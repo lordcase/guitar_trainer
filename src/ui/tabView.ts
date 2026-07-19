@@ -1,19 +1,26 @@
 import type { DrillSession } from '../trainer'
-import type { SequenceStep } from '../drills'
+import { DURATION_TICKS, type SequenceStep } from '../drills'
 import { midiName } from '../notes'
 
-/** Fretting-finger colors: 1 index, 2 middle, 3 ring, 4 pinky */
+/** Gibson-app finger colors: 1 blue, 2 green, 3 yellow, 4 pink */
 export const FINGER_COLORS: Record<number, string> = {
   1: '#4f8fd8',
-  2: '#d8b44f',
-  3: '#a06fd8',
-  4: '#d84f9e',
+  2: '#54b45f',
+  3: '#e7c14f',
+  4: '#e05a9b',
 }
 export const FINGER_NAMES: Record<number, string> = {
   1: 'index',
   2: 'middle',
   3: 'ring',
   4: 'pinky',
+}
+/** Gibson-app convention: open strings are white */
+export const OPEN_COLOR = '#f2f3f5'
+
+function outlineColor(fret: number, finger: number | undefined, fallback: string): string {
+  if (fret === 0) return OPEN_COLOR
+  return finger && FINGER_COLORS[finger] ? FINGER_COLORS[finger] : fallback
 }
 
 // Tab convention: high e on top. Index 0 = string 1.
@@ -55,7 +62,7 @@ export function renderTab(canvas: HTMLCanvasElement, session: DrillSession) {
   g.clearRect(0, 0, w, h)
 
   const now = session.time
-  const targetInterval = (session.beatsPerTarget * 60) / session.bpm
+  const targetInterval = (session.scrollBeats * 60) / session.bpm
   const pxPerSec = PX_PER_TARGET / targetInterval
   const horizon = (w - HIT_X) / pxPerSec + 0.5
   const xAt = (t: number) => HIT_X + (t - now) * pxPerSec
@@ -101,12 +108,23 @@ export function renderTab(canvas: HTMLCanvasElement, session: DrillSession) {
   g.stroke()
   g.shadowBlur = 0
 
-  // Notes.
+  // Notes and rests.
+  const restY = (yAt(3) + yAt(4)) / 2
   g.font = 'bold 17px system-ui, sans-serif'
   g.textAlign = 'center'
   for (const n of session.timeline(horizon)) {
     const x = xAt(n.time)
     if (x < -40 || x > w + 40) continue
+
+    if (n.target === null) {
+      // Rest: small gray marker between the middle strings.
+      g.fillStyle = C.upcoming
+      g.beginPath()
+      g.roundRect(x - 5, restY - 8, 10, 16, 3)
+      g.fill()
+      continue
+    }
+
     const y = yAt(n.target.string)
     const label = String(n.target.fret)
     const boxW = Math.max(26, g.measureText(label).width + 14)
@@ -119,18 +137,15 @@ export function renderTab(canvas: HTMLCanvasElement, session: DrillSession) {
       g.fill()
       g.fillStyle = n.status === 'hit' ? C.hitText : C.badText
     } else {
-      // Upcoming: open container, finger color on the outline.
-      g.strokeStyle =
-        n.target.finger && FINGER_COLORS[n.target.finger]
-          ? FINGER_COLORS[n.target.finger]
-          : C.upcoming
+      // Upcoming: open container, finger color (white = open string) on the outline.
+      g.strokeStyle = outlineColor(n.target.fret, n.target.finger, C.upcoming)
       g.lineWidth = 2
       g.stroke()
       g.fillStyle = C.upcomingText
     }
     g.fillText(label, x, y + 6)
 
-    // Small annotation under scored notes.
+    // Small annotation under the note.
     g.font = '10px system-ui, sans-serif'
     if (n.status === 'hit' && n.errorMs !== null) {
       g.fillStyle = C.hitLine
@@ -141,6 +156,9 @@ export function renderTab(canvas: HTMLCanvasElement, session: DrillSession) {
     } else if (n.status === 'miss') {
       g.fillStyle = C.bad
       g.fillText(n.heardMidi !== null ? midiName(n.heardMidi) : '∅', x, y + 26)
+    } else if (n.status === 'upcoming' && n.ticks < 4) {
+      g.fillStyle = C.small
+      g.fillText(n.ticks === 2 ? '8' : '16', x, y + 26)
     }
     g.font = 'bold 17px system-ui, sans-serif'
   }
@@ -154,7 +172,11 @@ export function renderSequencePreview(canvas: HTMLCanvasElement, steps: Sequence
   const dpr = window.devicePixelRatio || 1
   const spacing = 38
   const left = 34
-  const w = Math.max(left + steps.length * spacing + 16, canvas.parentElement?.clientWidth ?? 300)
+  const contentW = steps.reduce(
+    (sum, s) => sum + Math.max(24, (spacing * DURATION_TICKS[s.dur ?? 'q']) / 4),
+    0,
+  )
+  const w = Math.max(left + contentW + 16, canvas.parentElement?.clientWidth ?? 300)
   const h = 150
   canvas.style.width = `${w}px`
   canvas.style.height = `${h}px`
@@ -180,20 +202,40 @@ export function renderSequencePreview(canvas: HTMLCanvasElement, steps: Sequence
     g.fillText(STRING_LABELS[s - 1], 8, y + 4)
   }
 
+  const restY = (yAt(3) + yAt(4)) / 2
   g.font = 'bold 15px system-ui, sans-serif'
   g.textAlign = 'center'
-  steps.forEach((step, i) => {
-    const x = left + i * spacing + spacing / 2
-    const y = yAt(step.string)
+  let cursor = left
+  for (const step of steps) {
+    const ticks = DURATION_TICKS[step.dur ?? 'q']
+    const adv = Math.max(24, (spacing * ticks) / 4)
+    const x = cursor + adv / 2
+    cursor += adv
+
+    if (step.rest) {
+      g.fillStyle = C.upcoming
+      g.beginPath()
+      g.roundRect(x - 4, restY - 7, 8, 14, 3)
+      g.fill()
+      continue
+    }
+
+    const y = yAt(step.string!)
     const label = String(step.fret)
     const boxW = Math.max(24, g.measureText(label).width + 12)
     g.beginPath()
     g.roundRect(x - boxW / 2, y - 11, boxW, 22, 6)
-    g.strokeStyle = step.finger && FINGER_COLORS[step.finger] ? FINGER_COLORS[step.finger] : C.upcoming
+    g.strokeStyle = outlineColor(step.fret!, step.finger, C.upcoming)
     g.lineWidth = 2
     g.stroke()
     g.fillStyle = C.upcomingText
     g.fillText(label, x, y + 5)
-  })
+    if (ticks < 4) {
+      g.font = '9px system-ui, sans-serif'
+      g.fillStyle = C.small
+      g.fillText(ticks === 2 ? '8' : '16', x, y + 22)
+      g.font = 'bold 15px system-ui, sans-serif'
+    }
+  }
   g.textAlign = 'left'
 }

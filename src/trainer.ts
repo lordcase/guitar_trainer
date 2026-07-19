@@ -1,7 +1,14 @@
 import type { GuitarInput } from './audio/input'
 import type { PitchEventTracker, NoteEvent } from './audio/tracker'
 import { Metronome, feedbackBeep, speak } from './audio/metronome'
-import { makeGenerator, promptText, type DrillConfig, type Target } from './drills'
+import {
+  DURATION_TICKS,
+  makeGenerator,
+  midiFor,
+  promptText,
+  type DrillConfig,
+  type Target,
+} from './drills'
 
 export type BeatKind = 'count' | 'prep' | 'land'
 export type TargetStatus = 'pending' | 'hit' | 'wrong' | 'miss'
@@ -15,6 +22,8 @@ export interface HeardNote {
 export interface TargetResult {
   target: Target
   landTime: number
+  /** ± scoring window in seconds (shrinks for short notes) */
+  window: number
   status: TargetStatus
   /** Signed timing error in ms (hits only): negative = early */
   errorMs: number | null
@@ -22,11 +31,13 @@ export interface TargetResult {
   heard: HeardNote | null
 }
 
-/** One note on the rolling-tab timeline: a scored/pending landing or a predicted upcoming one. */
+/** One entry on the rolling-tab timeline. `target` is null for rests. */
 export interface TimelineNote {
   time: number
-  target: Target
-  status: TargetStatus | 'upcoming'
+  target: Target | null
+  /** Length in scheduler ticks (sixteenths); 4 = quarter */
+  ticks: number
+  status: TargetStatus | 'upcoming' | 'rest'
   errorMs: number | null
   heardMidi: number | null
 }
@@ -53,8 +64,15 @@ export interface SessionCallbacks {
   onTempoChange(bpm: number, dir: 'up' | 'down'): void
 }
 
-const COUNT_IN = 4
-const WINDOW = 0.15 // ± seconds around the landing click
+/** One scheduled slot: a note to land, or a rest. */
+interface Step {
+  target: Target | null
+  ticks: number
+}
+
+const COUNT_IN_BEATS = 4
+const TPB = 4 // scheduler ticks per quarter beat
+const MAX_WINDOW = 0.15 // ± seconds around the landing, capped for short notes
 // The tracker's pitch vote can take up to ~300 ms after the attack, so a
 // note played at the window's edge is reported well after the window
 // closes — resolve late enough to catch it.
@@ -75,11 +93,15 @@ export class DrillSession {
   private missStreak = 0
   private events: { t: number; midi: number }[] = []
   private metronome: Metronome
-  private gen: () => Target
-  /** All targets in play order, generated lazily as the timeline needs them */
-  private targets: Target[] = []
-  /** How many landings have been scheduled (= index of the next landing's target) */
-  private landCount = 0
+  private gen: (() => Target) | null = null
+  /** All steps in play order, generated lazily as the timeline needs them */
+  private steps: Step[] = []
+  private seqIdx = 0
+  /** Index of the next step to land */
+  private stepCount = 0
+  /** Tick index at which the next step lands */
+  private nextLandTick = COUNT_IN_BEATS * TPB
+  private pastRests: { time: number; ticks: number }[] = []
   private started = false
   private stopped = false
   private prevHandler: ((e: NoteEvent) => void) | null
@@ -94,24 +116,33 @@ export class DrillSession {
   ) {
     this.bpm = cfg.startBpm
     this.maxBpm = cfg.startBpm
-    this.gen = makeGenerator(cfg)
+    if (cfg.kind !== 'sequence') this.gen = makeGenerator(cfg)
     this.prevHandler = tracker.onEvent
-    this.metronome = new Metronome(input.ctx, this.bpm, this.handleBeat)
-    this.metronome.accentEvery = cfg.beatsPerTarget
+    this.metronome = new Metronome(input.ctx, this.bpm, this.handleTick)
+    // Landings start on the first beat after the count-in, so accents fall
+    // on (q - COUNT_IN) % N === 0 — bar starts for sequences, target
+    // landings otherwise.
+    const accentPeriod = cfg.kind === 'sequence' ? 4 : cfg.beatsPerTarget
+    this.metronome.accentFn = (q) =>
+      q >= COUNT_IN_BEATS && (q - COUNT_IN_BEATS) % accentPeriod === 0
   }
 
   get time() {
     return this.input.ctx.currentTime
   }
 
-  get beatsPerTarget() {
-    return this.cfg.beatsPerTarget
+  /** Beats' worth of scroll distance that one "unit" of spacing represents. */
+  get scrollBeats() {
+    return this.cfg.kind === 'sequence' ? 1 : this.cfg.beatsPerTarget
   }
 
   start() {
     this.tracker.onEvent = this.handleEvent
     this.started = true
-    if (this.cfg.audioPrompts) speak(promptText(this.targetAt(0), this.cfg))
+    if (this.cfg.audioPrompts) {
+      const first = this.stepAt(0).target
+      if (first) speak(promptText(first, this.cfg))
+    }
     this.metronome.start(0.8)
   }
 
@@ -123,17 +154,33 @@ export class DrillSession {
     return this.summarize()
   }
 
-  private targetAt(i: number): Target {
-    while (this.targets.length <= i) this.targets.push(this.gen())
-    return this.targets[i]
+  private stepAt(i: number): Step {
+    while (this.steps.length <= i) {
+      if (this.cfg.kind === 'sequence') {
+        const s = this.cfg.sequence[this.seqIdx % this.cfg.sequence.length]
+        this.seqIdx++
+        const ticks = DURATION_TICKS[s.dur ?? 'q']
+        this.steps.push(
+          s.rest
+            ? { target: null, ticks }
+            : {
+                target: {
+                  string: s.string!,
+                  fret: s.fret!,
+                  midi: midiFor(s.string!, s.fret!),
+                  finger: s.finger,
+                },
+                ticks,
+              },
+        )
+      } else {
+        this.steps.push({ target: this.gen!(), ticks: this.cfg.beatsPerTarget * TPB })
+      }
+    }
+    return this.steps[i]
   }
 
-  private isLanding(beatIndex: number): boolean {
-    const bpt = this.cfg.beatsPerTarget
-    return beatIndex >= COUNT_IN && (beatIndex - COUNT_IN) % bpt === bpt - 1
-  }
-
-  /** Scored + pending + predicted notes within `horizonSec` of now — feeds the rolling tab. */
+  /** Scored + pending + rests + predicted notes within `horizonSec` of now. */
   timeline(horizonSec: number): TimelineNote[] {
     if (!this.started) return []
     const out: TimelineNote[] = []
@@ -141,83 +188,109 @@ export class DrillSession {
       out.push({
         time: r.landTime,
         target: r.target,
+        ticks: 4,
         status: r.status,
         errorMs: r.errorMs,
         heardMidi: r.heard?.midi ?? null,
       })
     }
+    for (const rest of this.pastRests.slice(-10)) {
+      out.push({ time: rest.time, target: null, ticks: rest.ticks, status: 'rest', errorMs: null, heardMidi: null })
+    }
     const limit = this.time + horizonSec
-    const ib = 60 / this.bpm
-    let idx = this.metronome.scheduledIndex
-    let t = this.metronome.scheduledTime
-    let k = this.landCount
+    const tickInt = this.metronome.tickInterval
+    const timeOf = (tick: number) =>
+      this.metronome.scheduledTime + (tick - this.metronome.scheduledIndex) * tickInt
+    let tick = this.nextLandTick
+    let k = this.stepCount
+    let t = timeOf(tick)
     while (t < limit) {
-      if (this.isLanding(idx)) {
-        out.push({ time: t, target: this.targetAt(k++), status: 'upcoming', errorMs: null, heardMidi: null })
-      }
-      t += ib
-      idx++
+      const step = this.stepAt(k)
+      out.push({
+        time: t,
+        target: step.target,
+        ticks: step.ticks,
+        status: step.target ? 'upcoming' : 'rest',
+        errorMs: null,
+        heardMidi: null,
+      })
+      tick += step.ticks
+      t = timeOf(tick)
+      k++
     }
     return out
   }
 
-  /** Beat grid within the visible range — accents mark landing beats. */
+  /** Quarter-beat grid within the visible range — accents per the drill's accent rule. */
   beats(horizonSec: number): { time: number; accent: boolean }[] {
     if (!this.started) return []
     const res: { time: number; accent: boolean }[] = []
-    const ib = 60 / this.bpm
-    const idx0 = this.metronome.scheduledIndex
-    const t0 = this.metronome.scheduledTime
-    for (let m = 1; m <= 6; m++) {
-      const bi = idx0 - m
-      if (bi >= 0) res.push({ time: t0 - m * ib, accent: this.isLanding(bi) })
-    }
+    const tickInt = this.metronome.tickInterval
+    const schedIdx = this.metronome.scheduledIndex
+    const schedTime = this.metronome.scheduledTime
+    const firstQuarter = Math.max(0, Math.floor(schedIdx / TPB) - 6)
     const limit = this.time + horizonSec
-    let idx = idx0
-    for (let t = t0; t < limit; t += ib, idx++) {
-      res.push({ time: t, accent: this.isLanding(idx) })
+    for (let q = firstQuarter; ; q++) {
+      const t = schedTime + (q * TPB - schedIdx) * tickInt
+      if (t > limit) break
+      res.push({ time: t, accent: this.metronome.accentFn(q) })
     }
     return res
   }
 
-  private handleBeat = (index: number, time: number) => {
+  private handleTick = (tick: number, time: number) => {
     if (this.stopped) return
-    if (index < COUNT_IN) {
-      this.cb.onBeat('count', time)
-      return
+    const countTicks = COUNT_IN_BEATS * TPB
+    if (tick % TPB === 0 && tick !== this.nextLandTick) {
+      this.cb.onBeat(tick < countTicks ? 'count' : 'prep', time)
     }
-    if (!this.isLanding(index)) {
-      this.cb.onBeat('prep', time)
+    if (tick < countTicks || tick !== this.nextLandTick) return
+
+    const step = this.stepAt(this.stepCount)
+    this.stepCount++
+    this.nextLandTick += step.ticks
+
+    if (!step.target) {
+      this.pastRests.push({ time, ticks: step.ticks })
+      if (this.pastRests.length > 20) this.pastRests.shift()
       return
     }
 
     this.cb.onBeat('land', time)
+    const window = Math.min(MAX_WINDOW, 0.45 * step.ticks * this.metronome.tickInterval)
     const rec: TargetResult = {
-      target: this.targetAt(this.landCount),
+      target: step.target,
       landTime: time,
+      window,
       status: 'pending',
       errorMs: null,
       heard: null,
     }
-    this.landCount++
     this.results.push(rec)
 
     const ctx = this.input.ctx
     // Resolve after the scoring window closes AND the pitch vote settles.
     setTimeout(
       () => this.resolve(rec),
-      Math.max(0, (time + WINDOW + RESOLVE_SLACK - ctx.currentTime) * 1000),
+      Math.max(0, (time + window + RESOLVE_SLACK - ctx.currentTime) * 1000),
     )
     if (this.cfg.audioPrompts) {
-      // Announce the next target shortly after this landing.
-      const nextIdx = this.landCount
-      const announceDelay = Math.min(0.3, (0.25 * (this.cfg.beatsPerTarget * 60)) / this.bpm)
-      setTimeout(
-        () => {
-          if (!this.stopped) speak(promptText(this.targetAt(nextIdx), this.cfg))
-        },
-        Math.max(0, (time + announceDelay - ctx.currentTime) * 1000),
-      )
+      // Announce the next note (skipping rests) shortly after this landing.
+      let next: Target | null = null
+      for (let i = this.stepCount; i < this.stepCount + 8; i++) {
+        next = this.stepAt(i).target
+        if (next) break
+      }
+      if (next) {
+        const toSpeak = next
+        const announceDelay = Math.min(0.3, (0.25 * step.ticks) / TPB) * (60 / this.bpm)
+        setTimeout(
+          () => {
+            if (!this.stopped) speak(promptText(toSpeak, this.cfg))
+          },
+          Math.max(0, (time + announceDelay - ctx.currentTime) * 1000),
+        )
+      }
     }
   }
 
@@ -226,20 +299,22 @@ export class DrillSession {
     const t = e.time - this.offset
     this.events.push({ t, midi: e.midi })
     if (this.events.length > 50) this.events.shift()
-    // Only the most recent few targets can still be in their window.
-    for (let i = this.results.length - 1; i >= 0 && i >= this.results.length - 3; i--) {
+    // Pick the pending target whose landing is CLOSEST to the event — with
+    // short notes the windows of neighbours can overlap.
+    let best: TargetResult | null = null
+    for (let i = this.results.length - 1; i >= 0 && i >= this.results.length - 6; i--) {
       const rec = this.results[i]
       if (rec.status !== 'pending') continue
-      if (Math.abs(t - rec.landTime) <= WINDOW) {
-        rec.heard = { midi: e.midi, errorMs: (t - rec.landTime) * 1000 }
-        if (e.midi === rec.target.midi) {
-          rec.status = 'hit'
-          rec.errorMs = rec.heard.errorMs
-        } else {
-          rec.status = 'wrong'
-        }
-        return
-      }
+      if (Math.abs(t - rec.landTime) > rec.window) continue
+      if (!best || Math.abs(t - rec.landTime) < Math.abs(t - best.landTime)) best = rec
+    }
+    if (!best) return
+    best.heard = { midi: e.midi, errorMs: (t - best.landTime) * 1000 }
+    if (e.midi === best.target.midi) {
+      best.status = 'hit'
+      best.errorMs = best.heard.errorMs
+    } else {
+      best.status = 'wrong'
     }
   }
 

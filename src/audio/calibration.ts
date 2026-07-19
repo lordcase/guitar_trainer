@@ -52,7 +52,9 @@ export function calibrate(
       resolve({ offset: diffs[Math.floor(diffs.length / 2)], samples: diffs.length })
     }
 
-    const metronome = new Metronome(input.ctx, bpm, (index, time) => {
+    const metronome = new Metronome(input.ctx, bpm, (tick, time) => {
+      if (tick % metronome.ticksPerBeat !== 0) return
+      const index = tick / metronome.ticksPerBeat
       clickTimes.push(time)
       const uiDelay = Math.max(0, (time - input.ctx.currentTime) * 1000)
       setTimeout(() => onProgress(index + 1, CLICKS), uiDelay)

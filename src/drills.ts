@@ -2,11 +2,21 @@ import { OPEN_STRING_MIDI } from './notes'
 
 export type DrillKind = 'random' | 'pattern' | 'multi' | 'sequence'
 
+/** Note length: quarter (default), eighth, sixteenth */
+export type Duration = 'q' | 'e' | 's'
+
+/** Scheduler ticks (sixteenths) per duration */
+export const DURATION_TICKS: Record<Duration, number> = { q: 4, e: 2, s: 1 }
+
 export interface SequenceStep {
-  string: number
-  fret: number
+  /** A pause instead of a note */
+  rest?: boolean
+  string?: number
+  fret?: number
   /** Fretting finger 1–4 (index…pinky), optional */
   finger?: number
+  /** Note length, default 'q' */
+  dur?: Duration
 }
 
 export interface DrillConfig {
@@ -61,14 +71,10 @@ function target(string: number, fret: number): Target {
  */
 export function makeGenerator(cfg: DrillConfig): () => Target {
   switch (cfg.kind) {
-    case 'sequence': {
-      let i = -1
-      return () => {
-        i = (i + 1) % cfg.sequence.length
-        const s = cfg.sequence[i]
-        return { ...target(s.string, s.fret), finger: s.finger }
-      }
-    }
+    case 'sequence':
+      // Sequences are stepped directly by the session (they carry
+      // durations and rests) — never via a generator.
+      throw new Error('sequence drills do not use a generator')
     case 'pattern': {
       let i = -1
       return () => {
@@ -110,32 +116,53 @@ export function promptText(t: Target, cfg: DrillConfig): string {
     : fret
 }
 
-const STEP_RE = /^([1-6])[:.\/](\d{1,2})(?:[:.\/]([1-4]))?$/
-
 /**
- * Parses the compact sequence syntax: whitespace/comma-separated tokens of
- * `string:fret` or `string:fret:finger`, e.g. "6:3:1 6:5:2 5:3:1".
+ * Parses the compact sequence syntax: whitespace/comma-separated tokens.
+ * Notes: `string:fret` plus optional `:finger` (1–4) and/or `:length`
+ * (q/e/s), in any order — e.g. "6:5:1:e". Rests: `r`, `r:e`, `r:s`.
  */
 export function parseSequence(text: string): { steps: SequenceStep[] } | { error: string } {
-  const tokens = text.split(/[\s,]+/).filter(Boolean)
+  const tokens = text.toLowerCase().split(/[\s,]+/).filter(Boolean)
   if (tokens.length === 0) return { error: 'Empty sequence' }
   const steps: SequenceStep[] = []
   for (const tok of tokens) {
-    const m = STEP_RE.exec(tok)
-    if (!m) return { error: `Can't read "${tok}" — use string:fret or string:fret:finger, e.g. 6:3:1` }
-    const fret = Number(m[2])
-    if (fret > 15) return { error: `Fret ${fret} in "${tok}" is out of range (0–15)` }
-    steps.push({
-      string: Number(m[1]),
-      fret,
-      ...(m[3] ? { finger: Number(m[3]) } : {}),
-    })
+    const parts = tok.split(/[:.\/]/)
+    if (parts[0] === 'r' || /^r[qes]$/.test(parts[0])) {
+      const durPart = parts[0].length === 2 ? parts[0][1] : parts[1]
+      if (durPart && !'qes'.includes(durPart)) {
+        return { error: `Can't read rest "${tok}" — use r, r:e or r:s` }
+      }
+      steps.push({ rest: true, ...(durPart && durPart !== 'q' ? { dur: durPart as Duration } : {}) })
+      continue
+    }
+    const string = Number(parts[0])
+    const fret = Number(parts[1])
+    if (
+      parts.length < 2 ||
+      !/^[1-6]$/.test(parts[0]) ||
+      !/^\d{1,2}$/.test(parts[1] ?? '') ||
+      fret > 15
+    ) {
+      return { error: `Can't read "${tok}" — use string:fret(:finger)(:length), e.g. 6:5:1:e` }
+    }
+    const step: SequenceStep = { string, fret }
+    for (const p of parts.slice(2)) {
+      if (/^[1-4]$/.test(p)) step.finger = Number(p)
+      else if (p === 'e' || p === 's') step.dur = p
+      else if (p === 'q') continue
+      else return { error: `Can't read "${p}" in "${tok}" — finger is 1–4, length is q, e or s` }
+    }
+    steps.push(step)
   }
   return { steps }
 }
 
 export function serializeSequence(steps: SequenceStep[]): string {
   return steps
-    .map((s) => `${s.string}:${s.fret}${s.finger ? `:${s.finger}` : ''}`)
+    .map((s) => {
+      const dur = s.dur && s.dur !== 'q' ? `:${s.dur}` : ''
+      if (s.rest) return `r${dur}`
+      return `${s.string}:${s.fret}${s.finger ? `:${s.finger}` : ''}${dur}`
+    })
     .join(' ')
 }

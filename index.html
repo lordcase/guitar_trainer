@@ -130,18 +130,23 @@
             <label>Finger</label>
             <div class="segmented" id="finger-palette"></div>
           </div>
+          <div class="form-row">
+            <label>Length</label>
+            <div class="segmented" id="dur-palette"></div>
+          </div>
           <div class="fret-grid-wrap">
             <div id="fret-grid"></div>
           </div>
-          <div class="row-2">
-            <button id="seq-undo" type="button">⌫ Undo note</button>
+          <div class="row-3">
+            <button id="seq-rest" type="button">+ rest</button>
+            <button id="seq-undo" type="button">⌫ Undo</button>
             <button id="seq-clear" type="button">Clear</button>
           </div>
           <textarea
             id="seq-text"
             rows="3"
             spellcheck="false"
-            placeholder="string:fret:finger — e.g. 6:5:1 6:6:2 6:7:3 6:8:4"
+            placeholder="string:fret:finger:length — e.g. 6:5:1 6:7:3:e r:e 5:5:1:s"
           ></textarea>
           <div class="seq-preview-wrap">
             <canvas id="seq-preview"></canvas>

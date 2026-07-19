@@ -13,7 +13,13 @@ import {
   type SequenceStep,
 } from './drills'
 import { DrillSession, type SessionSummary, type TargetResult } from './trainer'
-import { renderTab, renderSequencePreview, FINGER_COLORS, FINGER_NAMES } from './ui/tabView'
+import {
+  renderTab,
+  renderSequencePreview,
+  FINGER_COLORS,
+  FINGER_NAMES,
+  OPEN_COLOR,
+} from './ui/tabView'
 import * as store from './store'
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!
@@ -315,12 +321,14 @@ const seqPreview = $<HTMLCanvasElement>('#seq-preview')
 const seqStatus = $('#seq-status')
 
 function fillLegend(el: HTMLElement) {
-  el.innerHTML = Object.entries(FINGER_NAMES)
-    .map(
-      ([n, name]) =>
-        `<span class="chip"><i style="background:${FINGER_COLORS[Number(n)]}"></i>${n} ${name}</span>`,
-    )
-    .join('')
+  el.innerHTML =
+    `<span class="chip"><i style="background:${OPEN_COLOR}"></i>open</span>` +
+    Object.entries(FINGER_NAMES)
+      .map(
+        ([n, name]) =>
+          `<span class="chip"><i style="background:${FINGER_COLORS[Number(n)]}"></i>${n} ${name}</span>`,
+      )
+      .join('')
 }
 
 function currentSteps(): SequenceStep[] | null {
@@ -390,6 +398,39 @@ $('#seq-back').addEventListener('click', () => {
 const DOT_FRETS = new Set([3, 5, 7, 9, 12, 15])
 const fingerPalette = $('#finger-palette')
 let editFinger: number | null = null
+let editDur: 'q' | 'e' | 's' = 'q'
+
+function buildDurPalette() {
+  const durPalette = $('#dur-palette')
+  const opts: ['q' | 'e' | 's', string][] = [
+    ['q', '1/4'],
+    ['e', '1/8'],
+    ['s', '1/16'],
+  ]
+  durPalette.innerHTML = ''
+  for (const [dur, label] of opts) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.textContent = label
+    btn.classList.toggle('selected', dur === editDur)
+    btn.addEventListener('click', () => {
+      editDur = dur
+      durPalette.querySelectorAll('button').forEach((b, i) => {
+        b.classList.toggle('selected', opts[i][0] === dur)
+      })
+    })
+    durPalette.append(btn)
+  }
+}
+
+function durSuffix(): string {
+  return editDur === 'q' ? '' : `:${editDur}`
+}
+
+function appendToken(token: string) {
+  seqText.value = seqText.value.trim() ? `${seqText.value.trim()} ${token}` : token
+  currentSteps()
+}
 
 function buildFingerPalette() {
   const opts: [number | null, string][] = [
@@ -432,10 +473,8 @@ function buildFretGrid() {
     if (!cell) return
     const s = Number(cell.dataset.string)
     const f = Number(cell.dataset.fret)
-    const token = `${s}:${f}${editFinger ? `:${editFinger}` : ''}`
-    seqText.value = seqText.value.trim() ? `${seqText.value.trim()} ${token}` : token
-    currentSteps()
-    const color = editFinger ? FINGER_COLORS[editFinger] : '#5a6378'
+    appendToken(`${s}:${f}${editFinger ? `:${editFinger}` : ''}${durSuffix()}`)
+    const color = f === 0 ? OPEN_COLOR : editFinger ? FINGER_COLORS[editFinger] : '#5a6378'
     cell.style.background = color
     setTimeout(() => (cell.style.background = ''), 250)
     tapTone(midiFor(s, f))
@@ -458,6 +497,8 @@ function tapTone(midi: number) {
   osc.start(t)
   osc.stop(t + 0.45)
 }
+
+$('#seq-rest').addEventListener('click', () => appendToken(`r${durSuffix()}`))
 
 $('#seq-undo').addEventListener('click', () => {
   const tokens = seqText.value.trim().split(/[\s,]+/).filter(Boolean)
@@ -642,6 +683,7 @@ $('#cal-back').addEventListener('click', () => show('screen-home'))
 loadSettings()
 fillLegend($('#seq-legend'))
 buildFingerPalette()
+buildDurPalette()
 buildFretGrid()
 updateInputStatus()
 {

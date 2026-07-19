@@ -1,43 +1,53 @@
 /**
  * Lookahead-scheduled metronome ("A Tale of Two Clocks" pattern): a coarse
- * JS interval schedules sample-accurate clicks slightly ahead on the
+ * JS interval schedules sample-accurate events slightly ahead on the
  * AudioContext clock, so UI jank never shifts the beat.
+ *
+ * The scheduler ticks at SIXTEENTH-note resolution so note lengths down to
+ * 1/16 (and rests) share one coherent clock; audible clicks sound only on
+ * quarter beats.
  */
 export class Metronome {
   bpm: number
-  /** Every Nth beat is accented (the "landing" click). 1 = accent all. */
-  accentEvery = 1
+  /** Decides which quarter beats get the accented click. */
+  accentFn: (quarter: number) => boolean = () => true
+  readonly ticksPerBeat = 4
 
   private timer: number | null = null
   private nextTime = 0
-  private index = 0
+  private tick = 0
 
   constructor(
     private ctx: AudioContext,
     bpm: number,
     /**
-     * Fires when a beat is *scheduled* — up to ~120 ms before it is audible.
-     * `time` is the AudioContext time at which the click sounds; use it to
-     * schedule UI updates and scoring windows.
+     * Fires when a tick is *scheduled* — up to ~120 ms before it is audible.
+     * `time` is the AudioContext time of the tick; use it to schedule UI
+     * updates and scoring windows.
      */
-    private onBeat: (index: number, time: number) => void,
+    private onTick: (tick: number, time: number) => void,
   ) {
     this.bpm = bpm
   }
 
-  /** Index of the next beat to be scheduled (already-scheduled beats are below this) */
+  /** Index of the next tick to be scheduled (already-scheduled ticks are below this) */
   get scheduledIndex() {
-    return this.index
+    return this.tick
   }
 
-  /** AudioContext time of the next beat to be scheduled */
+  /** AudioContext time of the next tick to be scheduled */
   get scheduledTime() {
     return this.nextTime
   }
 
+  /** Seconds per sixteenth tick at the current tempo */
+  get tickInterval() {
+    return 60 / this.bpm / this.ticksPerBeat
+  }
+
   start(delay = 0.6) {
     this.stop()
-    this.index = 0
+    this.tick = 0
     this.nextTime = this.ctx.currentTime + delay
     this.timer = window.setInterval(this.schedule, 25)
     this.schedule()
@@ -49,16 +59,15 @@ export class Metronome {
   }
 
   private schedule = () => {
-    // onBeat may call stop() (e.g. after a fixed click count) — check timer
-    // each iteration so no extra beat gets scheduled after that.
+    // onTick may call stop() — check timer each iteration so no extra tick
+    // gets scheduled after that.
     while (this.timer !== null && this.nextTime < this.ctx.currentTime + 0.12) {
-      const accent =
-        this.accentEvery <= 1 ||
-        this.index % this.accentEvery === this.accentEvery - 1
-      click(this.ctx, this.nextTime, accent)
-      this.onBeat(this.index, this.nextTime)
-      this.index++
-      this.nextTime += 60 / this.bpm
+      if (this.tick % this.ticksPerBeat === 0) {
+        click(this.ctx, this.nextTime, this.accentFn(this.tick / this.ticksPerBeat))
+      }
+      this.onTick(this.tick, this.nextTime)
+      this.tick++
+      this.nextTime += this.tickInterval
     }
   }
 }
