@@ -15,7 +15,6 @@ export const FINGER_NAMES: Record<number, string> = {
   3: 'ring',
   4: 'pinky',
 }
-const FINGER_TEXT = '#14161c'
 
 // Tab convention: high e on top. Index 0 = string 1.
 const STRING_LABELS = ['e', 'B', 'G', 'D', 'A', 'E']
@@ -112,24 +111,23 @@ export function renderTab(canvas: HTMLCanvasElement, session: DrillSession) {
     const label = String(n.target.fret)
     const boxW = Math.max(26, g.measureText(label).width + 14)
 
-    let box = C.upcoming
-    let text = C.upcomingText
-    if (n.status === 'hit') {
-      box = C.hit
-      text = C.hitText
-    } else if (n.status === 'wrong' || n.status === 'miss') {
-      box = C.bad
-      text = C.badText
-    } else if (n.target.finger && FINGER_COLORS[n.target.finger]) {
-      box = FINGER_COLORS[n.target.finger]
-      text = FINGER_TEXT
-    }
-
-    g.fillStyle = box
     g.beginPath()
     g.roundRect(x - boxW / 2, y - 12, boxW, 24, 7)
-    g.fill()
-    g.fillStyle = text
+    if (n.status === 'hit' || n.status === 'wrong' || n.status === 'miss') {
+      // Scored: solid fill tells the result.
+      g.fillStyle = n.status === 'hit' ? C.hit : C.bad
+      g.fill()
+      g.fillStyle = n.status === 'hit' ? C.hitText : C.badText
+    } else {
+      // Upcoming: open container, finger color on the outline.
+      g.strokeStyle =
+        n.target.finger && FINGER_COLORS[n.target.finger]
+          ? FINGER_COLORS[n.target.finger]
+          : C.upcoming
+      g.lineWidth = 2
+      g.stroke()
+      g.fillStyle = C.upcomingText
+    }
     g.fillText(label, x, y + 6)
 
     // Small annotation under scored notes.
@@ -189,11 +187,12 @@ export function renderSequencePreview(canvas: HTMLCanvasElement, steps: Sequence
     const y = yAt(step.string)
     const label = String(step.fret)
     const boxW = Math.max(24, g.measureText(label).width + 12)
-    g.fillStyle = step.finger && FINGER_COLORS[step.finger] ? FINGER_COLORS[step.finger] : C.upcoming
     g.beginPath()
     g.roundRect(x - boxW / 2, y - 11, boxW, 22, 6)
-    g.fill()
-    g.fillStyle = step.finger ? FINGER_TEXT : C.upcomingText
+    g.strokeStyle = step.finger && FINGER_COLORS[step.finger] ? FINGER_COLORS[step.finger] : C.upcoming
+    g.lineWidth = 2
+    g.stroke()
+    g.fillStyle = C.upcomingText
     g.fillText(label, x, y + 5)
   })
   g.textAlign = 'left'
