@@ -122,12 +122,6 @@ export function renderTab(canvas: HTMLCanvasElement, session: DrillSession) {
       g.beginPath()
       g.roundRect(x - 5, restY - 8, 10, 16, 3)
       g.fill()
-      if (n.ticks < 4) {
-        g.font = '10px system-ui, sans-serif'
-        g.fillStyle = C.small
-        g.fillText(n.ticks === 2 ? '8' : '16', x, restY + 22)
-        g.font = 'bold 17px system-ui, sans-serif'
-      }
       continue
     }
 
@@ -162,9 +156,6 @@ export function renderTab(canvas: HTMLCanvasElement, session: DrillSession) {
     } else if (n.status === 'miss') {
       g.fillStyle = C.bad
       g.fillText(n.heardMidi !== null ? midiName(n.heardMidi) : '∅', x, y + 26)
-    } else if (n.status === 'upcoming' && n.ticks < 4) {
-      g.fillStyle = C.small
-      g.fillText(n.ticks === 2 ? '8' : '16', x, y + 26)
     }
     g.font = 'bold 17px system-ui, sans-serif'
   }
@@ -176,12 +167,13 @@ export function renderSequencePreview(canvas: HTMLCanvasElement, steps: Sequence
   const g = canvas.getContext('2d')
   if (!g) return
   const dpr = window.devicePixelRatio || 1
-  const spacing = 38
+  // Spacing is duration-proportional; scale so the SHORTEST duration in
+  // the sequence still fits a note box (~24px). Sequences with 16ths
+  // render wider and scroll.
+  const minTicks = steps.reduce((m, s) => Math.min(m, DURATION_TICKS[s.dur ?? 'q']), 4)
+  const perTick = Math.max(24 / minTicks, 8.5)
   const left = 34
-  const contentW = steps.reduce(
-    (sum, s) => sum + Math.max(24, (spacing * DURATION_TICKS[s.dur ?? 'q']) / 4),
-    0,
-  )
+  const contentW = steps.reduce((sum, s) => sum + perTick * DURATION_TICKS[s.dur ?? 'q'], 0)
   const w = Math.max(left + contentW + 16, canvas.parentElement?.clientWidth ?? 300)
   const h = 150
   canvas.style.width = `${w}px`
@@ -214,7 +206,7 @@ export function renderSequencePreview(canvas: HTMLCanvasElement, steps: Sequence
   let cursor = left
   for (const step of steps) {
     const ticks = DURATION_TICKS[step.dur ?? 'q']
-    const adv = Math.max(24, (spacing * ticks) / 4)
+    const adv = perTick * ticks
     const x = cursor + adv / 2
     cursor += adv
 
@@ -223,12 +215,6 @@ export function renderSequencePreview(canvas: HTMLCanvasElement, steps: Sequence
       g.beginPath()
       g.roundRect(x - 4, restY - 7, 8, 14, 3)
       g.fill()
-      if (ticks < 4) {
-        g.font = '9px system-ui, sans-serif'
-        g.fillStyle = C.small
-        g.fillText(ticks === 2 ? '8' : '16', x, restY + 19)
-        g.font = 'bold 15px system-ui, sans-serif'
-      }
       continue
     }
 
@@ -242,12 +228,6 @@ export function renderSequencePreview(canvas: HTMLCanvasElement, steps: Sequence
     g.stroke()
     g.fillStyle = C.upcomingText
     g.fillText(label, x, y + 5)
-    if (ticks < 4) {
-      g.font = '9px system-ui, sans-serif'
-      g.fillStyle = C.small
-      g.fillText(ticks === 2 ? '8' : '16', x, y + 22)
-      g.font = 'bold 15px system-ui, sans-serif'
-    }
   }
   g.textAlign = 'left'
 }
