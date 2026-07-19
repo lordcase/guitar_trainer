@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#12141a" />
+    <title>Guitar Trainer</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main id="app">
+      <!-- HOME -->
+      <section id="screen-home" class="screen active">
+        <header>
+          <h1>Guitar Trainer</h1>
+          <p class="subtitle">No-look fretboard navigation</p>
+        </header>
+
+        <div class="card">
+          <div class="form-row">
+            <label>Drill</label>
+            <div class="segmented" id="kind-picker">
+              <button data-kind="random" class="selected">Random jumps</button>
+              <button data-kind="pattern">Pattern</button>
+              <button data-kind="multi">Multi-string</button>
+            </div>
+          </div>
+
+          <div class="form-row" id="row-string">
+            <label for="string-select">String</label>
+            <select id="string-select"></select>
+          </div>
+
+          <div class="form-row" id="row-pool">
+            <label for="pool-select">Frets</label>
+            <select id="pool-select"></select>
+          </div>
+
+          <div class="form-row" id="row-pattern" hidden>
+            <label for="pattern-input">Pattern</label>
+            <input id="pattern-input" type="text" inputmode="numeric" value="3 7 10 7" />
+          </div>
+
+          <div class="form-row">
+            <label for="bpm-input">Start BPM</label>
+            <input id="bpm-input" type="number" min="40" max="200" value="60" />
+          </div>
+
+          <div class="form-row">
+            <label for="bpt-select">Beats per note</label>
+            <select id="bpt-select">
+              <option value="1">1 — every click</option>
+              <option value="2" selected>2 — land on accent</option>
+              <option value="4">4 — slow prep</option>
+            </select>
+          </div>
+
+          <label class="check-row">
+            <input id="audio-check" type="checkbox" />
+            <span>Eyes-closed mode (spoken targets + sound feedback)</span>
+          </label>
+
+          <button id="drill-start" class="primary">Start drill</button>
+          <p id="home-status" class="hint"></p>
+          <p id="input-status" class="hint"></p>
+        </div>
+
+        <div class="row-2">
+          <button id="nav-tuner">Tuner check</button>
+          <button id="nav-calibrate">Calibrate latency</button>
+        </div>
+      </section>
+
+      <!-- DRILL -->
+      <section id="screen-drill" class="screen">
+        <div class="drill-status">
+          <span id="drill-bpm">60 bpm</span>
+          <span id="beat-dot"></span>
+          <span id="drill-score">–</span>
+        </div>
+
+        <div class="card drill-card" id="drill-card">
+          <canvas id="tab-canvas"></canvas>
+          <p id="drill-feedback" class="drill-feedback"></p>
+          <p id="drill-hearing" class="drill-hearing"></p>
+        </div>
+
+        <p class="hint">Play each fret number as it crosses the green line.</p>
+        <button id="drill-stop">End session</button>
+      </section>
+
+      <!-- SUMMARY -->
+      <section id="screen-summary" class="screen">
+        <header><h1>Session summary</h1></header>
+        <div class="card">
+          <p id="summary-headline" class="summary-headline"></p>
+          <div id="summary-stats" class="summary-stats"></div>
+          <h2 class="h2">Per fret</h2>
+          <div id="summary-frets" class="summary-frets"></div>
+          <h2 class="h2">Every target</h2>
+          <div id="summary-detail" class="summary-detail"></div>
+        </div>
+        <button id="summary-again" class="primary">Same drill again</button>
+        <button id="summary-home">Home</button>
+      </section>
+
+      <!-- TUNER -->
+      <section id="screen-tuner" class="screen">
+        <header><h1>Tuner check</h1></header>
+        <div class="card">
+          <div id="note-display">
+            <span id="note-name">–</span><span id="note-octave"></span>
+          </div>
+          <div id="cents-meter">
+            <div id="cents-bar"></div>
+            <div class="cents-center"></div>
+          </div>
+          <p id="freq-readout">– Hz</p>
+          <p id="positions" class="positions"></p>
+          <div class="level-row">
+            <label for="level-meter">signal</label>
+            <progress id="level-meter" max="1" value="0"></progress>
+          </div>
+          <select id="device-select" aria-label="Input device"></select>
+        </div>
+        <button id="tuner-back">Back</button>
+      </section>
+
+      <!-- CALIBRATE -->
+      <section id="screen-calibrate" class="screen">
+        <header><h1>Latency calibration</h1></header>
+        <div class="card">
+          <p>
+            You'll hear 12 clicks. Play a muted chug (or any note) exactly
+            <em>on</em> each click. This measures the delay between your
+            playing and what the app hears, so beat scoring is honest.
+          </p>
+          <p id="cal-status" class="cal-status"></p>
+          <button id="cal-start" class="primary">Start clicks</button>
+        </div>
+        <button id="cal-back">Back</button>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
