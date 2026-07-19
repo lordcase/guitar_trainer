@@ -2,9 +2,17 @@ import { openInput, listInputs, type GuitarInput } from './audio/input'
 import { PitchEventTracker } from './audio/tracker'
 import { calibrate } from './audio/calibration'
 import { fretPositions, midiName } from './notes'
-import { FRET_POOLS, STRING_NAMES, type DrillConfig, type DrillKind } from './drills'
+import {
+  FRET_POOLS,
+  STRING_NAMES,
+  parseSequence,
+  serializeSequence,
+  type DrillConfig,
+  type DrillKind,
+  type SequenceStep,
+} from './drills'
 import { DrillSession, type SessionSummary, type TargetResult } from './trainer'
-import { renderTab } from './ui/tabView'
+import { renderTab, renderSequencePreview, FINGER_COLORS, FINGER_NAMES } from './ui/tabView'
 import * as store from './store'
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!
@@ -105,14 +113,39 @@ function setKind(k: DrillKind) {
     b.classList.toggle('selected', b.dataset.kind === k)
   })
   $('#row-pattern').hidden = k !== 'pattern'
-  $('#row-pool').hidden = k === 'pattern'
-  $('#row-string').hidden = k === 'multi'
+  $('#row-seq').hidden = k !== 'sequence'
+  $('#row-pool').hidden = k === 'pattern' || k === 'sequence'
+  $('#row-string').hidden = k === 'multi' || k === 'sequence'
 }
 
 kindPicker.addEventListener('click', (e) => {
   const k = (e.target as HTMLElement).dataset.kind as DrillKind | undefined
   if (k) setKind(k)
 })
+
+const seqSelect = $<HTMLSelectElement>('#seq-select')
+
+function populateSeqSelects(selected?: string) {
+  const names = Object.keys(store.getSequences()).sort()
+  for (const sel of [seqSelect, $<HTMLSelectElement>('#seq-load')]) {
+    const keep = selected ?? sel.value
+    sel.innerHTML = ''
+    if (names.length === 0) {
+      const opt = document.createElement('option')
+      opt.value = ''
+      opt.textContent = '— none saved —'
+      sel.append(opt)
+      continue
+    }
+    for (const name of names) {
+      const opt = document.createElement('option')
+      opt.value = name
+      opt.textContent = name
+      opt.selected = name === keep
+      sel.append(opt)
+    }
+  }
+}
 
 function loadSettings() {
   const s = store.getSettings()
@@ -123,6 +156,7 @@ function loadSettings() {
   if (s.startBpm) bpmInput.value = String(s.startBpm)
   if (s.beatsPerTarget) bptSelect.value = String(s.beatsPerTarget)
   if (s.audioPrompts !== undefined) audioCheck.checked = s.audioPrompts
+  populateSeqSelects(s.seqName)
 }
 
 function readConfig(): DrillConfig | null {
@@ -135,16 +169,23 @@ function readConfig(): DrillConfig | null {
     homeStatus.textContent = 'Pattern needs at least 2 frets, e.g. "3 7 10 7"'
     return null
   }
+  const sequence = store.getSequences()[seqSelect.value] ?? []
+  if (kind === 'sequence' && sequence.length < 2) {
+    homeStatus.textContent = 'Pick a saved sequence (or create one with Edit)'
+    return null
+  }
   const cfg: DrillConfig = {
     kind,
     string: Number(stringSelect.value),
     fretPool: FRET_POOLS[poolSelect.value],
     pattern,
+    sequence,
     startBpm: Math.min(200, Math.max(40, Number(bpmInput.value) || 60)),
     beatsPerTarget: Number(bptSelect.value),
     audioPrompts: audioCheck.checked,
   }
-  store.saveSettings({ ...cfg, poolName: poolSelect.value })
+  const { sequence: _seq, ...settings } = cfg
+  store.saveSettings({ ...settings, poolName: poolSelect.value, seqName: seqSelect.value })
   return cfg
 }
 
@@ -195,6 +236,9 @@ async function startDrill(cfg: DrillConfig) {
   }
 
   lastConfig = cfg
+  const drillLegend = $('#drill-legend')
+  drillLegend.hidden = !(cfg.kind === 'sequence' && cfg.sequence.some((s) => s.finger))
+  if (!drillLegend.hidden) fillLegend(drillLegend)
   drillFeedback.textContent = ''
   drillFeedback.className = 'drill-feedback'
   drillScore.textContent = '–'
@@ -259,6 +303,85 @@ $('#drill-stop').addEventListener('click', () => {
   store.saveSession(summary)
   renderSummary(summary, results)
   show('screen-summary')
+})
+
+// ---------- sequence editor ----------
+
+const seqLoad = $<HTMLSelectElement>('#seq-load')
+const seqName = $<HTMLInputElement>('#seq-name')
+const seqText = $<HTMLTextAreaElement>('#seq-text')
+const seqPreview = $<HTMLCanvasElement>('#seq-preview')
+const seqStatus = $('#seq-status')
+
+function fillLegend(el: HTMLElement) {
+  el.innerHTML = Object.entries(FINGER_NAMES)
+    .map(
+      ([n, name]) =>
+        `<span class="chip"><i style="background:${FINGER_COLORS[Number(n)]}"></i>${n} ${name}</span>`,
+    )
+    .join('')
+}
+
+function currentSteps(): SequenceStep[] | null {
+  const parsed = parseSequence(seqText.value)
+  if ('error' in parsed) {
+    seqStatus.textContent = seqText.value.trim() ? parsed.error : ''
+    renderSequencePreview(seqPreview, [])
+    return null
+  }
+  seqStatus.textContent = `${parsed.steps.length} notes`
+  renderSequencePreview(seqPreview, parsed.steps)
+  return parsed.steps
+}
+
+function loadSequenceIntoEditor(name: string) {
+  const steps = store.getSequences()[name]
+  if (!steps) return
+  seqName.value = name
+  seqText.value = serializeSequence(steps)
+  currentSteps()
+}
+
+$('#nav-seq-editor').addEventListener('click', () => {
+  populateSeqSelects()
+  if (seqSelect.value) loadSequenceIntoEditor(seqSelect.value)
+  else currentSteps()
+  show('screen-seqedit')
+})
+
+seqLoad.addEventListener('change', () => loadSequenceIntoEditor(seqLoad.value))
+seqText.addEventListener('input', () => void currentSteps())
+
+$('#seq-save').addEventListener('click', () => {
+  const name = seqName.value.trim()
+  if (!name) {
+    seqStatus.textContent = 'Give the sequence a name first'
+    return
+  }
+  const steps = currentSteps()
+  if (!steps || steps.length < 2) {
+    seqStatus.textContent = 'Need at least 2 valid notes to save'
+    return
+  }
+  store.saveSequence(name, steps)
+  populateSeqSelects(name)
+  seqStatus.textContent = `Saved "${name}" (${steps.length} notes)`
+})
+
+$('#seq-delete').addEventListener('click', () => {
+  const name = seqName.value.trim()
+  if (!name || !store.getSequences()[name]) {
+    seqStatus.textContent = 'Nothing to delete'
+    return
+  }
+  store.deleteSequence(name)
+  populateSeqSelects()
+  seqStatus.textContent = `Deleted "${name}"`
+})
+
+$('#seq-back').addEventListener('click', () => {
+  populateSeqSelects()
+  show('screen-home')
 })
 
 // ---------- summary ----------
@@ -430,6 +553,7 @@ $('#cal-back').addEventListener('click', () => show('screen-home'))
 // ---------- init ----------
 
 loadSettings()
+fillLegend($('#seq-legend'))
 updateInputStatus()
 {
   const saved = store.getPreferredDevice()

@@ -1,5 +1,21 @@
 import type { DrillSession } from '../trainer'
+import type { SequenceStep } from '../drills'
 import { midiName } from '../notes'
+
+/** Fretting-finger colors: 1 index, 2 middle, 3 ring, 4 pinky */
+export const FINGER_COLORS: Record<number, string> = {
+  1: '#4f8fd8',
+  2: '#d8b44f',
+  3: '#a06fd8',
+  4: '#d84f9e',
+}
+export const FINGER_NAMES: Record<number, string> = {
+  1: 'index',
+  2: 'middle',
+  3: 'ring',
+  4: 'pinky',
+}
+const FINGER_TEXT = '#14161c'
 
 // Tab convention: high e on top. Index 0 = string 1.
 const STRING_LABELS = ['e', 'B', 'G', 'D', 'A', 'E']
@@ -104,6 +120,9 @@ export function renderTab(canvas: HTMLCanvasElement, session: DrillSession) {
     } else if (n.status === 'wrong' || n.status === 'miss') {
       box = C.bad
       text = C.badText
+    } else if (n.target.finger && FINGER_COLORS[n.target.finger]) {
+      box = FINGER_COLORS[n.target.finger]
+      text = FINGER_TEXT
     }
 
     g.fillStyle = box
@@ -127,5 +146,55 @@ export function renderTab(canvas: HTMLCanvasElement, session: DrillSession) {
     }
     g.font = 'bold 17px system-ui, sans-serif'
   }
+  g.textAlign = 'left'
+}
+
+/** Static tab of a sequence for the editor preview. Sizes its own canvas. */
+export function renderSequencePreview(canvas: HTMLCanvasElement, steps: SequenceStep[]) {
+  const g = canvas.getContext('2d')
+  if (!g) return
+  const dpr = window.devicePixelRatio || 1
+  const spacing = 38
+  const left = 34
+  const w = Math.max(left + steps.length * spacing + 16, canvas.parentElement?.clientWidth ?? 300)
+  const h = 150
+  canvas.style.width = `${w}px`
+  canvas.style.height = `${h}px`
+  canvas.width = Math.round(w * dpr)
+  canvas.height = Math.round(h * dpr)
+  g.setTransform(dpr, 0, 0, dpr, 0, 0)
+  g.clearRect(0, 0, w, h)
+
+  const topPad = 18
+  const gap = (h - topPad - 24) / 5
+  const yAt = (string: number) => topPad + (string - 1) * gap
+
+  g.font = '11px system-ui, sans-serif'
+  for (let s = 1; s <= 6; s++) {
+    const y = yAt(s)
+    g.strokeStyle = C.stringLine
+    g.lineWidth = 1
+    g.beginPath()
+    g.moveTo(22, y)
+    g.lineTo(w, y)
+    g.stroke()
+    g.fillStyle = C.label
+    g.fillText(STRING_LABELS[s - 1], 8, y + 4)
+  }
+
+  g.font = 'bold 15px system-ui, sans-serif'
+  g.textAlign = 'center'
+  steps.forEach((step, i) => {
+    const x = left + i * spacing + spacing / 2
+    const y = yAt(step.string)
+    const label = String(step.fret)
+    const boxW = Math.max(24, g.measureText(label).width + 12)
+    g.fillStyle = step.finger && FINGER_COLORS[step.finger] ? FINGER_COLORS[step.finger] : C.upcoming
+    g.beginPath()
+    g.roundRect(x - boxW / 2, y - 11, boxW, 22, 6)
+    g.fill()
+    g.fillStyle = step.finger ? FINGER_TEXT : C.upcomingText
+    g.fillText(label, x, y + 5)
+  })
   g.textAlign = 'left'
 }

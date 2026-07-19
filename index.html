@@ -20,9 +20,10 @@
           <div class="form-row">
             <label>Drill</label>
             <div class="segmented" id="kind-picker">
-              <button data-kind="random" class="selected">Random jumps</button>
+              <button data-kind="random" class="selected">Random</button>
               <button data-kind="pattern">Pattern</button>
-              <button data-kind="multi">Multi-string</button>
+              <button data-kind="multi">Multi</button>
+              <button data-kind="sequence">Sequence</button>
             </div>
           </div>
 
@@ -39,6 +40,14 @@
           <div class="form-row" id="row-pattern" hidden>
             <label for="pattern-input">Pattern</label>
             <input id="pattern-input" type="text" inputmode="numeric" value="3 7 10 7" />
+          </div>
+
+          <div class="form-row" id="row-seq" hidden>
+            <label for="seq-select">Sequence</label>
+            <div class="seq-row">
+              <select id="seq-select"></select>
+              <button id="nav-seq-editor" type="button">Edit</button>
+            </div>
           </div>
 
           <div class="form-row">
@@ -83,6 +92,7 @@
           <canvas id="tab-canvas"></canvas>
           <p id="drill-feedback" class="drill-feedback"></p>
           <p id="drill-hearing" class="drill-hearing"></p>
+          <div id="drill-legend" class="finger-legend" hidden></div>
         </div>
 
         <p class="hint">Play each fret number as it crosses the green line.</p>
@@ -102,6 +112,37 @@
         </div>
         <button id="summary-again" class="primary">Same drill again</button>
         <button id="summary-home">Home</button>
+      </section>
+
+      <!-- SEQUENCE EDITOR -->
+      <section id="screen-seqedit" class="screen">
+        <header><h1>Sequences</h1></header>
+        <div class="card">
+          <div class="form-row">
+            <label for="seq-load">Load</label>
+            <select id="seq-load"></select>
+          </div>
+          <div class="form-row">
+            <label for="seq-name">Name</label>
+            <input id="seq-name" type="text" placeholder="e.g. spider 1234" />
+          </div>
+          <textarea
+            id="seq-text"
+            rows="4"
+            spellcheck="false"
+            placeholder="string:fret:finger — e.g. 6:5:1 6:6:2 6:7:3 6:8:4"
+          ></textarea>
+          <div class="seq-preview-wrap">
+            <canvas id="seq-preview"></canvas>
+          </div>
+          <div id="seq-legend" class="finger-legend"></div>
+          <p id="seq-status" class="hint"></p>
+          <div class="row-2">
+            <button id="seq-save" class="primary">Save</button>
+            <button id="seq-delete">Delete</button>
+          </div>
+        </div>
+        <button id="seq-back">Back</button>
       </section>
 
       <!-- TUNER -->

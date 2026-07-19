@@ -1,4 +1,4 @@
-import type { DrillConfig } from './drills'
+import type { DrillConfig, SequenceStep } from './drills'
 import type { SessionSummary } from './trainer'
 
 const KEYS = {
@@ -7,6 +7,27 @@ const KEYS = {
   device: 'gt-input-device',
   settings: 'gt-settings',
   sessions: 'gt-sessions',
+  sequences: 'gt-sequences',
+}
+
+export function getSequences(): Record<string, SequenceStep[]> {
+  try {
+    return JSON.parse(localStorage.getItem(KEYS.sequences) ?? '{}')
+  } catch {
+    return {}
+  }
+}
+
+export function saveSequence(name: string, steps: SequenceStep[]) {
+  const all = getSequences()
+  all[name] = steps
+  localStorage.setItem(KEYS.sequences, JSON.stringify(all))
+}
+
+export function deleteSequence(name: string) {
+  const all = getSequences()
+  delete all[name]
+  localStorage.setItem(KEYS.sequences, JSON.stringify(all))
 }
 
 export interface PreferredDevice {
@@ -49,7 +70,9 @@ export function setLatencyOffset(deviceId: string, seconds: number) {
   localStorage.setItem(KEYS.offsets, JSON.stringify(map))
 }
 
-export function getSettings(): Partial<DrillConfig> & { poolName?: string } {
+type StoredSettings = Partial<DrillConfig> & { poolName?: string; seqName?: string }
+
+export function getSettings(): StoredSettings {
   try {
     return JSON.parse(localStorage.getItem(KEYS.settings) ?? '{}')
   } catch {
@@ -57,7 +80,7 @@ export function getSettings(): Partial<DrillConfig> & { poolName?: string } {
   }
 }
 
-export function saveSettings(s: Partial<DrillConfig> & { poolName?: string }) {
+export function saveSettings(s: StoredSettings) {
   localStorage.setItem(KEYS.settings, JSON.stringify(s))
 }
 

@@ -1,6 +1,13 @@
 import { OPEN_STRING_MIDI } from './notes'
 
-export type DrillKind = 'random' | 'pattern' | 'multi'
+export type DrillKind = 'random' | 'pattern' | 'multi' | 'sequence'
+
+export interface SequenceStep {
+  string: number
+  fret: number
+  /** Fretting finger 1–4 (index…pinky), optional */
+  finger?: number
+}
 
 export interface DrillConfig {
   kind: DrillKind
@@ -9,6 +16,8 @@ export interface DrillConfig {
   fretPool: number[]
   /** For kind 'pattern', e.g. [3, 7, 10, 7] */
   pattern: number[]
+  /** For kind 'sequence' */
+  sequence: SequenceStep[]
   startBpm: number
   beatsPerTarget: number
   /** Eyes-closed mode: spoken targets + sound feedback */
@@ -19,6 +28,7 @@ export interface Target {
   string: number
   fret: number
   midi: number
+  finger?: number
 }
 
 export const FRET_POOLS: Record<string, number[]> = {
@@ -51,6 +61,14 @@ function target(string: number, fret: number): Target {
  */
 export function makeGenerator(cfg: DrillConfig): () => Target {
   switch (cfg.kind) {
+    case 'sequence': {
+      let i = -1
+      return () => {
+        i = (i + 1) % cfg.sequence.length
+        const s = cfg.sequence[i]
+        return { ...target(s.string, s.fret), finger: s.finger }
+      }
+    }
     case 'pattern': {
       let i = -1
       return () => {
@@ -87,5 +105,37 @@ export function makeGenerator(cfg: DrillConfig): () => Target {
 
 export function promptText(t: Target, cfg: DrillConfig): string {
   const fret = t.fret === 0 ? 'open' : String(t.fret)
-  return cfg.kind === 'multi' ? `string ${t.string}, ${fret}` : fret
+  return cfg.kind === 'multi' || cfg.kind === 'sequence'
+    ? `string ${t.string}, ${fret}`
+    : fret
+}
+
+const STEP_RE = /^([1-6])[:.\/](\d{1,2})(?:[:.\/]([1-4]))?$/
+
+/**
+ * Parses the compact sequence syntax: whitespace/comma-separated tokens of
+ * `string:fret` or `string:fret:finger`, e.g. "6:3:1 6:5:2 5:3:1".
+ */
+export function parseSequence(text: string): { steps: SequenceStep[] } | { error: string } {
+  const tokens = text.split(/[\s,]+/).filter(Boolean)
+  if (tokens.length === 0) return { error: 'Empty sequence' }
+  const steps: SequenceStep[] = []
+  for (const tok of tokens) {
+    const m = STEP_RE.exec(tok)
+    if (!m) return { error: `Can't read "${tok}" — use string:fret or string:fret:finger, e.g. 6:3:1` }
+    const fret = Number(m[2])
+    if (fret > 15) return { error: `Fret ${fret} in "${tok}" is out of range (0–15)` }
+    steps.push({
+      string: Number(m[1]),
+      fret,
+      ...(m[3] ? { finger: Number(m[3]) } : {}),
+    })
+  }
+  return { steps }
+}
+
+export function serializeSequence(steps: SequenceStep[]): string {
+  return steps
+    .map((s) => `${s.string}:${s.fret}${s.finger ? `:${s.finger}` : ''}`)
+    .join(' ')
 }
