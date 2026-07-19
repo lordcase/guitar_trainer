@@ -126,9 +126,20 @@
             <label for="seq-name">Name</label>
             <input id="seq-name" type="text" placeholder="e.g. spider 1234" />
           </div>
+          <div class="form-row">
+            <label>Finger</label>
+            <div class="segmented" id="finger-palette"></div>
+          </div>
+          <div class="fret-grid-wrap">
+            <div id="fret-grid"></div>
+          </div>
+          <div class="row-2">
+            <button id="seq-undo" type="button">⌫ Undo note</button>
+            <button id="seq-clear" type="button">Clear</button>
+          </div>
           <textarea
             id="seq-text"
-            rows="4"
+            rows="3"
             spellcheck="false"
             placeholder="string:fret:finger — e.g. 6:5:1 6:6:2 6:7:3 6:8:4"
           ></textarea>

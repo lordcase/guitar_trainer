@@ -1,10 +1,11 @@
 import { openInput, listInputs, type GuitarInput } from './audio/input'
 import { PitchEventTracker } from './audio/tracker'
 import { calibrate } from './audio/calibration'
-import { fretPositions, midiName } from './notes'
+import { fretPositions, midiName, midiToFreq } from './notes'
 import {
   FRET_POOLS,
   STRING_NAMES,
+  midiFor,
   parseSequence,
   serializeSequence,
   type DrillConfig,
@@ -384,6 +385,92 @@ $('#seq-back').addEventListener('click', () => {
   show('screen-home')
 })
 
+// --- visual grid input ---
+
+const DOT_FRETS = new Set([3, 5, 7, 9, 12, 15])
+const fingerPalette = $('#finger-palette')
+let editFinger: number | null = null
+
+function buildFingerPalette() {
+  const opts: [number | null, string][] = [
+    [null, '—'],
+    ...Object.entries(FINGER_NAMES).map(([n]) => [Number(n), n] as [number, string]),
+  ]
+  fingerPalette.innerHTML = ''
+  for (const [finger, label] of opts) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.innerHTML = finger ? `<i style="background:${FINGER_COLORS[finger]}"></i>${label}` : label
+    btn.classList.toggle('selected', finger === editFinger)
+    btn.addEventListener('click', () => {
+      editFinger = finger
+      fingerPalette
+        .querySelectorAll('button')
+        .forEach((b, i) => b.classList.toggle('selected', i === opts.findIndex(([f]) => f === finger)))
+    })
+    fingerPalette.append(btn)
+  }
+}
+
+function buildFretGrid() {
+  const grid = $('#fret-grid')
+  const parts: string[] = ['<span class="fg-head"></span>']
+  for (let f = 0; f <= 15; f++) {
+    parts.push(`<span class="fg-head${DOT_FRETS.has(f) ? ' dot' : ''}">${f}</span>`)
+  }
+  for (let s = 1; s <= 6; s++) {
+    parts.push(`<span class="fg-lab">${['e', 'B', 'G', 'D', 'A', 'E'][s - 1]}</span>`)
+    for (let f = 0; f <= 15; f++) {
+      parts.push(
+        `<button type="button" class="fg-cell${f === 0 ? ' open' : ''}" data-string="${s}" data-fret="${f}" aria-label="string ${s} fret ${f}"></button>`,
+      )
+    }
+  }
+  grid.innerHTML = parts.join('')
+  grid.addEventListener('click', (e) => {
+    const cell = (e.target as HTMLElement).closest<HTMLElement>('.fg-cell')
+    if (!cell) return
+    const s = Number(cell.dataset.string)
+    const f = Number(cell.dataset.fret)
+    const token = `${s}:${f}${editFinger ? `:${editFinger}` : ''}`
+    seqText.value = seqText.value.trim() ? `${seqText.value.trim()} ${token}` : token
+    currentSteps()
+    const color = editFinger ? FINGER_COLORS[editFinger] : '#5a6378'
+    cell.style.background = color
+    setTimeout(() => (cell.style.background = ''), 250)
+    tapTone(midiFor(s, f))
+  })
+}
+
+let tapCtx: AudioContext | null = null
+
+function tapTone(midi: number) {
+  tapCtx ??= new AudioContext()
+  void tapCtx.resume()
+  const t = tapCtx.currentTime
+  const osc = tapCtx.createOscillator()
+  const gain = tapCtx.createGain()
+  osc.type = 'triangle'
+  osc.frequency.value = midiToFreq(midi)
+  gain.gain.setValueAtTime(0.14, t)
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4)
+  osc.connect(gain).connect(tapCtx.destination)
+  osc.start(t)
+  osc.stop(t + 0.45)
+}
+
+$('#seq-undo').addEventListener('click', () => {
+  const tokens = seqText.value.trim().split(/[\s,]+/).filter(Boolean)
+  tokens.pop()
+  seqText.value = tokens.join(' ')
+  currentSteps()
+})
+
+$('#seq-clear').addEventListener('click', () => {
+  seqText.value = ''
+  currentSteps()
+})
+
 // ---------- summary ----------
 
 function renderSummary(s: SessionSummary, results: TargetResult[] = []) {
@@ -554,6 +641,8 @@ $('#cal-back').addEventListener('click', () => show('screen-home'))
 
 loadSettings()
 fillLegend($('#seq-legend'))
+buildFingerPalette()
+buildFretGrid()
 updateInputStatus()
 {
   const saved = store.getPreferredDevice()

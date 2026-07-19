@@ -398,6 +398,66 @@ textarea {
   background: #171a22;
 }
 
+.fret-grid-wrap {
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  background: #171a22;
+  padding: 0.5rem;
+}
+
+#fret-grid {
+  display: grid;
+  grid-template-columns: 1.4rem 2.1rem repeat(15, 2rem);
+  gap: 3px;
+  width: max-content;
+}
+
+#fret-grid .fg-head {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-align: center;
+  align-self: center;
+}
+
+#fret-grid .fg-head.dot {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+#fret-grid .fg-lab {
+  color: var(--muted);
+  font-size: 0.75rem;
+  align-self: center;
+}
+
+#fret-grid .fg-cell {
+  height: 2rem;
+  min-height: 2rem;
+  padding: 0;
+  background: #262a36;
+  border: none;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+#fret-grid .fg-cell.open {
+  background: #303748;
+}
+
+#finger-palette button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+#finger-palette i {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 0.2rem;
+  display: inline-block;
+}
+
 .finger-legend {
   display: flex;
   flex-wrap: wrap;
