@@ -157,6 +157,36 @@ export function parseSequence(text: string): { steps: SequenceStep[] } | { error
   return { steps }
 }
 
+/**
+ * Built-in practice sequences, seeded into the saved list on first load.
+ * Kept as token text — parsed by parseSequence at seed time.
+ */
+export const PRESET_SEQUENCES: Record<string, string> = {
+  // Fixed position, index on fret 3 (frets 3-6 = fingers 1-4, low E),
+  // durations shorten as it progresses: quarters → eighths → sixteenths.
+  'pos3 speed-up': [
+    '6:3:1 6:4:2 6:5:3 6:6:4 6:5:3 6:4:2 6:3:1 r',
+    '6:3:1:e 6:4:2:e 6:5:3:e 6:6:4:e 6:6:4:e 6:5:3:e 6:4:2:e 6:3:1:e',
+    '6:3:1:s 6:4:2:s 6:5:3:s 6:6:4:s 6:6:4:s 6:5:3:s 6:4:2:s 6:3:1:s r 6:3:1',
+  ].join(' '),
+  // Same position, hopping across three adjacent strings (6-5-4).
+  'pos3 string-hops': [
+    '6:3:1 5:3:1 4:3:1 5:4:2 6:4:2 r',
+    '6:5:3:e 5:5:3:e 4:5:3:e 5:5:3:e 6:6:4:e 5:6:4:e 4:6:4:e 5:6:4:e',
+    '6:3:1:s 5:3:1:s 4:3:1:s 5:3:1:s 6:4:2:s 5:4:2:s 4:4:2:s 5:4:2:s r 4:3:1',
+  ].join(' '),
+  // One string (D), travelling the landmarks between open and fret 12.
+  'D-string traveler': [
+    '4:0 4:5:1 4:0 4:7:1 4:0 4:12:1 4:9:1 4:7:1 4:5:1 4:3:1 4:0 r',
+    '4:3:1:e 4:5:1:e 4:7:1:e 4:9:1:e 4:12:1:e r:e 4:12:1 4:7:1 4:0 r 4:12:1',
+  ].join(' '),
+  // Three strings (6-5-4), open to fret 12 — position shifts + string changes.
+  '3-string traveler': [
+    '6:0 6:5:1 5:5:1 4:5:1 4:0 5:7:1 6:7:1 6:12:1 5:12:1 4:12:1 r 6:3:1',
+    '5:3:1:e 4:3:1:e 5:9:1:e 6:9:1:e 4:12:1 5:0 6:0 r 5:5:1 6:12:1',
+  ].join(' '),
+}
+
 export function serializeSequence(steps: SequenceStep[]): string {
   return steps
     .map((s) => {

@@ -4,6 +4,7 @@ import { calibrate } from './audio/calibration'
 import { fretPositions, midiName, midiToFreq } from './notes'
 import {
   FRET_POOLS,
+  PRESET_SEQUENCES,
   STRING_NAMES,
   midiFor,
   parseSequence,
@@ -734,6 +735,16 @@ $('#cal-start').addEventListener('click', async () => {
 $('#cal-back').addEventListener('click', () => show('screen-home'))
 
 // ---------- init ----------
+
+// Seed built-in sequences (never overwriting a user's saved edits).
+{
+  const saved = store.getSequences()
+  for (const [name, text] of Object.entries(PRESET_SEQUENCES)) {
+    if (saved[name]) continue
+    const parsed = parseSequence(text)
+    if (!('error' in parsed)) store.saveSequence(name, parsed.steps)
+  }
+}
 
 loadSettings()
 fillLegend($('#seq-legend'))
