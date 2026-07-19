@@ -430,6 +430,9 @@ function durSuffix(): string {
 function appendToken(token: string) {
   seqText.value = seqText.value.trim() ? `${seqText.value.trim()} ${token}` : token
   currentSteps()
+  // Keep the newest notes in view.
+  const wrap = seqPreview.parentElement
+  if (wrap) wrap.scrollLeft = wrap.scrollWidth
 }
 
 function buildFingerPalette() {

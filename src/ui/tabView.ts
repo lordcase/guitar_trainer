@@ -122,6 +122,12 @@ export function renderTab(canvas: HTMLCanvasElement, session: DrillSession) {
       g.beginPath()
       g.roundRect(x - 5, restY - 8, 10, 16, 3)
       g.fill()
+      if (n.ticks < 4) {
+        g.font = '10px system-ui, sans-serif'
+        g.fillStyle = C.small
+        g.fillText(n.ticks === 2 ? '8' : '16', x, restY + 22)
+        g.font = 'bold 17px system-ui, sans-serif'
+      }
       continue
     }
 
@@ -217,6 +223,12 @@ export function renderSequencePreview(canvas: HTMLCanvasElement, steps: Sequence
       g.beginPath()
       g.roundRect(x - 4, restY - 7, 8, 14, 3)
       g.fill()
+      if (ticks < 4) {
+        g.font = '9px system-ui, sans-serif'
+        g.fillStyle = C.small
+        g.fillText(ticks === 2 ? '8' : '16', x, restY + 19)
+        g.font = 'bold 15px system-ui, sans-serif'
+      }
       continue
     }
 
