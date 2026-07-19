@@ -162,10 +162,25 @@ export function renderTab(canvas: HTMLCanvasElement, session: DrillSession) {
   g.textAlign = 'left'
 }
 
-/** Static tab of a sequence for the editor preview. Sizes its own canvas. */
-export function renderSequencePreview(canvas: HTMLCanvasElement, steps: SequenceStep[]) {
+export interface PreviewHit {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * Static tab of a sequence for the editor preview. Sizes its own canvas.
+ * Returns a hitbox per step (CSS pixels) so the editor can make notes
+ * tappable; `selected` gets a highlight ring.
+ */
+export function renderSequencePreview(
+  canvas: HTMLCanvasElement,
+  steps: SequenceStep[],
+  selected: number | null = null,
+): PreviewHit[] {
   const g = canvas.getContext('2d')
-  if (!g) return
+  if (!g) return []
   const dpr = window.devicePixelRatio || 1
   // Spacing is duration-proportional; scale so the SHORTEST duration in
   // the sequence still fits a note box (~24px). Sequences with 16ths
@@ -203,8 +218,20 @@ export function renderSequencePreview(canvas: HTMLCanvasElement, steps: Sequence
   const restY = (yAt(3) + yAt(4)) / 2
   g.font = 'bold 15px system-ui, sans-serif'
   g.textAlign = 'center'
+  const hits: PreviewHit[] = []
+  const ring = (x: number, y: number, bw: number, bh: number) => {
+    g.save()
+    g.strokeStyle = C.hitLine
+    g.lineWidth = 2
+    g.setLineDash([4, 3])
+    g.beginPath()
+    g.roundRect(x - bw / 2 - 4, y - bh / 2 - 4, bw + 8, bh + 8, 8)
+    g.stroke()
+    g.restore()
+  }
+
   let cursor = left
-  for (const step of steps) {
+  steps.forEach((step, i) => {
     const ticks = DURATION_TICKS[step.dur ?? 'q']
     const adv = perTick * ticks
     const x = cursor + adv / 2
@@ -215,7 +242,9 @@ export function renderSequencePreview(canvas: HTMLCanvasElement, steps: Sequence
       g.beginPath()
       g.roundRect(x - 4, restY - 7, 8, 14, 3)
       g.fill()
-      continue
+      if (i === selected) ring(x, restY, 8, 14)
+      hits.push({ x: x - 12, y: restY - 16, w: 24, h: 32 })
+      return
     }
 
     const y = yAt(step.string!)
@@ -228,6 +257,9 @@ export function renderSequencePreview(canvas: HTMLCanvasElement, steps: Sequence
     g.stroke()
     g.fillStyle = C.upcomingText
     g.fillText(label, x, y + 5)
-  }
+    if (i === selected) ring(x, y, boxW, 22)
+    hits.push({ x: x - boxW / 2 - 5, y: y - 16, w: boxW + 10, h: 32 })
+  })
   g.textAlign = 'left'
+  return hits
 }

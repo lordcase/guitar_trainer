@@ -19,6 +19,7 @@ import {
   FINGER_COLORS,
   FINGER_NAMES,
   OPEN_COLOR,
+  type PreviewHit,
 } from './ui/tabView'
 import * as store from './store'
 
@@ -331,15 +332,26 @@ function fillLegend(el: HTMLElement) {
       .join('')
 }
 
+let selectedIdx: number | null = null
+let lastSteps: SequenceStep[] = []
+let previewHits: PreviewHit[] = []
+
 function currentSteps(): SequenceStep[] | null {
   const parsed = parseSequence(seqText.value)
   if ('error' in parsed) {
     seqStatus.textContent = seqText.value.trim() ? parsed.error : ''
-    renderSequencePreview(seqPreview, [])
+    lastSteps = []
+    selectedIdx = null
+    previewHits = renderSequencePreview(seqPreview, [])
     return null
   }
-  seqStatus.textContent = `${parsed.steps.length} notes`
-  renderSequencePreview(seqPreview, parsed.steps)
+  lastSteps = parsed.steps
+  if (selectedIdx !== null && selectedIdx >= parsed.steps.length) selectedIdx = null
+  previewHits = renderSequencePreview(seqPreview, parsed.steps, selectedIdx)
+  seqStatus.textContent =
+    selectedIdx !== null
+      ? `note ${selectedIdx + 1} selected — tap grid/rest to replace, Clear for equal rest`
+      : `${parsed.steps.length} notes`
   return parsed.steps
 }
 
@@ -348,6 +360,7 @@ function loadSequenceIntoEditor(name: string) {
   if (!steps) return
   seqName.value = name
   seqText.value = serializeSequence(steps)
+  selectedIdx = null
   currentSteps()
 }
 
@@ -359,7 +372,21 @@ $('#nav-seq-editor').addEventListener('click', () => {
 })
 
 seqLoad.addEventListener('change', () => loadSequenceIntoEditor(seqLoad.value))
-seqText.addEventListener('input', () => void currentSteps())
+seqText.addEventListener('input', () => {
+  selectedIdx = null // manual edits shift indices; drop the selection
+  void currentSteps()
+})
+
+seqPreview.addEventListener('click', (e) => {
+  const rect = seqPreview.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const y = e.clientY - rect.top
+  const idx = previewHits.findIndex(
+    (h) => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h,
+  )
+  selectedIdx = idx === -1 || idx === selectedIdx ? null : idx
+  currentSteps()
+})
 
 $('#seq-save').addEventListener('click', () => {
   const name = seqName.value.trim()
@@ -427,8 +454,22 @@ function durSuffix(): string {
   return editDur === 'q' ? '' : `:${editDur}`
 }
 
+function getTokens(): string[] {
+  return seqText.value.trim().split(/[\s,]+/).filter(Boolean)
+}
+
 function appendToken(token: string) {
-  seqText.value = seqText.value.trim() ? `${seqText.value.trim()} ${token}` : token
+  const tokens = getTokens()
+  if (selectedIdx !== null && selectedIdx < tokens.length) {
+    // A note is selected: replace it in place.
+    tokens[selectedIdx] = token
+    selectedIdx = null
+    seqText.value = tokens.join(' ')
+    currentSteps()
+    return
+  }
+  tokens.push(token)
+  seqText.value = tokens.join(' ')
   currentSteps()
   // Keep the newest notes in view.
   const wrap = seqPreview.parentElement
@@ -504,13 +545,24 @@ function tapTone(midi: number) {
 $('#seq-rest').addEventListener('click', () => appendToken(`r${durSuffix()}`))
 
 $('#seq-undo').addEventListener('click', () => {
-  const tokens = seqText.value.trim().split(/[\s,]+/).filter(Boolean)
+  const tokens = getTokens()
   tokens.pop()
+  selectedIdx = null
   seqText.value = tokens.join(' ')
   currentSteps()
 })
 
 $('#seq-clear').addEventListener('click', () => {
+  if (selectedIdx !== null && selectedIdx < lastSteps.length) {
+    // A note is selected: swap it for an equal-length rest.
+    const dur = lastSteps[selectedIdx].dur
+    const tokens = getTokens()
+    tokens[selectedIdx] = `r${dur && dur !== 'q' ? `:${dur}` : ''}`
+    selectedIdx = null
+    seqText.value = tokens.join(' ')
+    currentSteps()
+    return
+  }
   seqText.value = ''
   currentSteps()
 })
